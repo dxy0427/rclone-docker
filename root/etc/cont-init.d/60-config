@@ -1,0 +1,12 @@
+#!/usr/bin/with-contenv bash
+
+echo "[Init] Setting permissions..."
+
+mkdir -p /root/.cache/rclone/webgui/plugins/config
+chmod -R 777 /root/.cache
+
+mkdir -p /mnt/rclone /config /cache
+
+chmod -R 777 /config /mnt/rclone /cache
+
+echo "[Init] Done."
