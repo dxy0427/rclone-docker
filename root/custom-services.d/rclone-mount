@@ -1,0 +1,93 @@
+#!/usr/bin/with-contenv bash
+# shellcheck disable=2154
+
+RCLONE_CONF="/config/rclone.conf"
+MOUNT_POINT="/mnt/rclone"
+
+function log() {
+    echo "$(date '+%Y/%m/%d %H:%M:%S') [Script] $@" > /proc/1/fd/1
+}
+
+function cleanup() {
+    log "接收到停止信号，正在清理挂载点..."
+    if mountpoint -q "$MOUNT_POINT"; then
+        fusermount3 -u -z "$MOUNT_POINT"
+    fi
+    if mountpoint -q "$MOUNT_POINT"; then
+        umount -l "$MOUNT_POINT"
+    fi
+    log "挂载点已安全卸载。"
+    exit 0
+}
+
+trap cleanup SIGTERM SIGINT
+
+if [ -z "$MOUNT_PATH" ]; then
+    log "Error: MOUNT_PATH 变量未设置."
+    exit 1
+fi
+
+if [ ! -f "$RCLONE_CONF" ]; then
+    log "Error: 配置文件 $RCLONE_CONF 不存在."
+    exit 1
+fi
+
+mkdir -p "$MOUNT_POINT"
+
+if [ -n "$RCLONE_PASS" ]; then
+    log "检测到明文密码，开始自动加密..."
+    if [ -z "$(echo "$RCLONE_PASS" | xargs)" ]; then
+        log "Error: RCLONE_PASS 环境变量为空！"
+        exit 1
+    fi
+    
+    OBSCURED_PASS=$(rclone obscure "$RCLONE_PASS")
+    if [ -z "$OBSCURED_PASS" ]; then
+        log "Error: 密码加密失败！"
+        exit 1
+    fi
+    
+    CONFIG_UPPER=$(echo "$MOUNT_PATH" | tr '[:lower:]' '[:upper:]')
+    ENV_VAR="RCLONE_CONFIG_${CONFIG_UPPER}_PASS"
+    export "$ENV_VAR"="$OBSCURED_PASS"
+    log "密码加密完成，注入环境变量: $ENV_VAR"
+else
+    log "未检测到环境变量密码，将使用 rclone.conf 配置"
+fi
+
+if [ -z "$REMOTE_NAME" ]; then
+    REMOTE_PATH="$MOUNT_PATH:/"
+else
+    REMOTE_PATH="$MOUNT_PATH:/$REMOTE_NAME"
+fi
+
+log "正在启动 Rclone..."
+log "挂载源: $REMOTE_PATH"
+log "挂载点: $MOUNT_POINT"
+
+rclone mount "$REMOTE_PATH" "$MOUNT_POINT" \
+    --allow-other \
+    --config="$RCLONE_CONF" \
+    --log-file=/config/rclone.log \
+    --log-level NOTICE \
+    --header "Referer:" \
+    --copy-links \
+    --transfers=8 \
+    --multi-thread-streams 8 \
+    --no-gzip-encoding \
+    --no-check-certificate \
+    --allow-non-empty \
+    --umask 000 \
+    --dir-cache-time 30m \
+    --use-mmap \
+    --cache-dir=/cache \
+    --vfs-cache-mode full \
+    --buffer-size 128M \
+    --vfs-read-chunk-size 32M \
+    --vfs-read-chunk-size-limit off \
+    --vfs-read-ahead 64M \
+    --vfs-cache-max-age 7d \
+    --vfs-cache-max-size 10G &
+
+RCLONE_PID=$!
+wait "$RCLONE_PID"
