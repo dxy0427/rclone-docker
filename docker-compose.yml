@@ -1,0 +1,24 @@
+services:
+  rclone-mount:
+    build:
+      context: .
+    image: rclone-docker
+    container_name: rclone-docker
+    network_mode: bridge
+    privileged: true
+    environment: 
+      - TZ=Asia/Shanghai
+      - MOUNT_PATH=webdav      # 对应rclone.conf中的[webdav]配置段
+      - REMOTE_NAME=           # 挂载根目录留空，有子文件夹填路径
+      #- RCLONE_PASS=your_password     # rclone.conf未填加密密码，取消注释填明文密码；已填则保留注释
+    volumes:
+      - ./media:/mnt/rclone:shared  # 宿主机挂载目录，对应容器内挂载点
+      - ./config:/config            # 映射配置目录，存放rclone.conf
+      - ./cache:/cache              # 缓存持久化，重启不丢失缓存
+    devices:
+      - /dev/fuse:/dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    restart: unless-stopped
